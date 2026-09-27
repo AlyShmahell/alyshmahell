@@ -1,0 +1,41 @@
+name: Regenerate pins
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - pins.json
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate pins
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/generate_pins.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pins README.md
+          if git diff --staged --quiet; then
+            echo "No pin output changes"
+            exit 0
+          fi
+          git commit -m "Regenerate profile pins"
+          git push
