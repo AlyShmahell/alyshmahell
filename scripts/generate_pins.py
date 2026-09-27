@@ -44,11 +44,6 @@ LANG_COLOR = {
     "Yacc": "#4B6C4B",
 }
 
-THEME = {
-    "light": dict(bg="#ffffff", border="#d0d7de", title="#0969da", text="#656d76", icon="#656d76"),
-    "dark": dict(bg="#0d1117", border="#30363d", title="#2f81f7", text="#8b949e", icon="#8b949e"),
-}
-
 REPO_ICON = (
     "M4 2a2 2 0 0 0-2 2v12.5a.5.5 0 0 0 .8.4L6 14l3.2 2.9a.5.5 0 0 0 .8-.4V4a2 2 0 0 0-2-2H4zm0 "
     "1h4a1 1 0 0 1 1 1v10.1l-2.4-2.2a.75.75 0 0 0-1.1 0L3 14.1V4a1 1 0 0 1 1-1z"
@@ -62,6 +57,33 @@ STAR_ICON = (
 
 def die(msg: str) -> NoReturn:
     raise SystemExit(msg)
+
+
+def parse_hex(color: str) -> tuple[int, int, int]:
+    c = color.removeprefix("#")
+    if len(c) != 6:
+        c = "858585"
+    return int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+
+
+def to_hex(r: float, g: float, b: float) -> str:
+    return f"#{int(round(r)):02x}{int(round(g)):02x}{int(round(b)):02x}"
+
+
+def mix(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> str:
+    return to_hex(*(a[i] + (b[i] - a[i]) * t for i in range(3)))
+
+
+def theme_from_lang(lang: str | None) -> dict[str, str]:
+    accent = LANG_COLOR.get(lang or "", "#858585")
+    rgb = parse_hex(accent)
+    return {
+        "bg": mix((255, 255, 255), rgb, 0.12),
+        "border": accent,
+        "title": accent,
+        "text": mix((40, 40, 40), rgb, 0.35),
+        "icon": accent,
+    }
 
 
 def load_config() -> tuple[str, list[str]]:
@@ -115,12 +137,12 @@ def path(d: str, fill: str) -> str:
     return f'<path fill="{fill}" fill-rule="evenodd" d="{d}"/>'
 
 
-def svg_card(repo: dict, theme_name: str) -> str:
-    t = THEME[theme_name]
+def svg_card(repo: dict) -> str:
     w, h = CARD
     name = repo["name"]
     lang = repo.get("language") or ""
     stars = int(repo.get("stargazers_count") or 0)
+    theme = theme_from_lang(lang)
     lang_c = LANG_COLOR.get(lang, "#858585")
 
     parts = [
@@ -128,23 +150,25 @@ def svg_card(repo: dict, theme_name: str) -> str:
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
         f'viewBox="0 0 {w} {h}" role="img" aria-label="{escape(name)}">',
         f'<rect x="0.5" y="0.5" width="{w - 1}" height="{h - 1}" rx="6" '
-        f'fill="{t["bg"]}" stroke="{t["border"]}"/>',
-        f'<g transform="translate(20,18) scale(1.1)">{path(REPO_ICON, t["icon"])}</g>',
-        text(42, 32, name, size=14, fill=t["title"], weight="600"),
+        f'fill="{theme["bg"]}" stroke="{theme["border"]}"/>',
+        f'<g transform="translate(20,18) scale(1.1)">{path(REPO_ICON, theme["icon"])}</g>',
+        text(42, 32, name, size=14, fill=theme["title"], weight="600"),
     ]
 
     y = 52
     for line in wrap_desc(repo.get("description")):
-        parts.append(text(20, y, line, size=12, fill=t["text"]))
+        parts.append(text(20, y, line, size=12, fill=theme["text"]))
         y += 16
 
     meta_y, x = 100, 20
     if lang:
         parts.append(f'<circle cx="{x + 5}" cy="{meta_y - 3}" r="5" fill="{lang_c}"/>')
-        parts.append(text(x + 16, meta_y, lang, size=12, fill=t["icon"]))
+        parts.append(text(x + 16, meta_y, lang, size=12, fill=theme["icon"]))
         x += 16 + len(lang) * 7 + 20
-    parts.append(f'<g transform="translate({x},{meta_y - 11}) scale(0.85)">{path(STAR_ICON, t["icon"])}</g>')
-    parts.append(text(x + 16, meta_y, str(stars), size=12, fill=t["icon"]))
+    parts.append(
+        f'<g transform="translate({x},{meta_y - 11}) scale(0.85)">{path(STAR_ICON, theme["icon"])}</g>'
+    )
+    parts.append(text(x + 16, meta_y, str(stars), size=12, fill=theme["icon"]))
     parts.append("</svg>\n")
     return "\n".join(parts)
 
@@ -155,12 +179,10 @@ def slug(name: str) -> str:
 
 def write_svgs(repos: list[dict]) -> None:
     PINS.mkdir(parents=True, exist_ok=True)
-    for old in (*PINS.glob("*-light.svg"), *PINS.glob("*-dark.svg")):
+    for old in PINS.glob("*.svg"):
         old.unlink()
     for repo in repos:
-        base = slug(repo["name"])
-        for theme in THEME:
-            (PINS / f"{base}-{theme}.svg").write_text(svg_card(repo, theme))
+        (PINS / f"{slug(repo['name'])}.svg").write_text(svg_card(repo))
 
 
 def readme_cell(user: str, repo: dict) -> str:
@@ -170,8 +192,7 @@ def readme_cell(user: str, repo: dict) -> str:
         [
             "<td>",
             f'  <a href="https://github.com/{user}/{name}">',
-            f'    <img src="pins/{base}-light.svg#gh-light-mode-only" alt="{escape(name)}" width="400" height="120" />',
-            f'    <img src="pins/{base}-dark.svg#gh-dark-mode-only" alt="{escape(name)}" width="400" height="120" />',
+            f'    <img src="pins/{base}.svg" alt="{escape(name)}" width="400" height="120" />',
             "  </a>",
             "</td>",
         ]
